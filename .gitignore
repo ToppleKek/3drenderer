@@ -1,0 +1,12 @@
+build
+imgui.ini
+*.png~
+*.bin
+*.exe
+*.pdb
+*.ilk
+*.rdbg
+*.spv
+*.blend
+*.blend1
+ignore
