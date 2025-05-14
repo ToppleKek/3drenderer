@@ -9,10 +9,8 @@
 
 #pragma once
 
-#include "bana.hpp"
-
-#define BEGIN_TIMED_BLOCK(NAME) f64 NAME##_TIMED_BLOCK = Ichigo::Internal::platform_get_current_time()
-#define END_TIMED_BLOCK(NAME)   ICHIGO_INFO("Timed block \"" #NAME "\" took %fms!", (Ichigo::Internal::platform_get_current_time() - NAME##_TIMED_BLOCK) * 1000.0)
+#include "bana/bana.hpp"
+#include "bana/bana_platform.hpp"
 
 #define GL_CALL(_CALL) do { Ichigo::Internal::gl._CALL; GLenum gl_err = Ichigo::Internal::gl.glGetError(); if (gl_err != 0) ICHIGO_ERROR("GL error 0x%x returned from '%s'.", gl_err, #_CALL); } while (0)
 

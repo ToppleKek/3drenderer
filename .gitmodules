@@ -1,0 +1,3 @@
+[submodule "bana"]
+	path = bana
+	url = https://github.com/ToppleKek/bana
