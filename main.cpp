@@ -135,7 +135,8 @@ static void frame_render() {
     mat4 model1 = translate3d({1.0f, 0.0f, -1.0f}) * yrot3d(shit);
     // mat4 model2 = translate3d({3.0f, 0.0f, -3.0f});
     // mat4 model2 = translate3d({2.0f, 0.0f, 0.0f}) * xrot3d(-90.0f);
-    mat4 model2 = translate3d({2.0f, 0.0f, 0.0f}) * xrot3d(-90.0f);
+    // mat4 model2 = translate3d({2.0f, 0.0f, 0.0f}) * xrot3d(-90.0f);
+    mat4 model2 = translate3d({2.0f, 0.0f, 0.0f});
     // mat4 model2 = translate3d({-1.0f, 0.0f, 1.0f}) * zrot3d(shit);
     shit += 50.0f * Ichigo::Internal::dt;
 
@@ -419,20 +420,6 @@ static GLuint link_program(GLuint vertex_shader_id, GLuint fragment_shader_id) {
     return program_id;
 }
 
-
-static mat4 get_parent_xform(Bana::FixedArray<Bone> &skeleton, Bana::FixedArray<Bana::Optional<mat4>> &final_xforms, Bone b) {
-    if (final_xforms[b.parent_index].has_value) return final_xforms[b.parent_index].value;
-    if (skeleton[b.parent_index].parent_index == -1) {
-        // TODO: We could just set it here, but if you call this function you should probably already have the root xform set.
-        assert(false && "You must set the root xform before calling this function.");
-        // final_xforms[b.parent_index] =
-    }
-
-    // final_xforms[b.parent_index] = skeleton[b.parent_index].inverse_bind_matrix * get_parent_xform(skeleton, final_xforms, skeleton[b.parent_index]);
-    final_xforms[b.parent_index] = skeleton[b.parent_index].bind_matrix * get_parent_xform(skeleton, final_xforms, skeleton[b.parent_index]);
-    return final_xforms[b.parent_index].value;
-}
-
 void Ichigo::Internal::init() {
     BEGIN_TIMED_BLOCK(engine_init);
 
@@ -554,22 +541,6 @@ void Ichigo::Internal::init() {
     //     ICHIGO_INFO("Bone: %.*s", PFBS(skeleton[i].name));
     // }
 
-    // calculate_xforms_and_upload_vertex_data(); // Or something
-
-    Bana::FixedArray<Bana::Optional<mat4>> final_xforms = Bana::make_fixed_array<Bana::Optional<mat4>>(mococo_skeleton.size, Internal::perm_allocator);
-    final_xforms.size = mococo_skeleton.size;
-    std::memset(final_xforms.data, 0, final_xforms.size * sizeof(Bana::Optional<mat4>));
-
-    for (i32 i = 0; i < mococo_skeleton.size; ++i) {
-        if (mococo_skeleton[i].parent_index == -1) {
-            // final_xforms[i] = mococo_skeleton[i].inverse_bind_matrix;
-            final_xforms[i] = mococo_skeleton[i].bind_matrix;
-        } else if (!final_xforms[i].has_value) {
-            // final_xforms[i] = get_parent_xform(mococo_skeleton, final_xforms, mococo_skeleton[i]) * mococo_skeleton[i].inverse_bind_matrix;
-            final_xforms[i] = get_parent_xform(mococo_skeleton, final_xforms, mococo_skeleton[i]) * mococo_skeleton[i].bind_matrix;
-        }
-    }
-
     Ichigo::Internal::gl.glGenBuffers(1, (GLuint *) &mococo_skeleton_debug_vbos.geometry_vbo);
     Ichigo::Internal::gl.glGenBuffers(1, (GLuint *) &mococo_skeleton_debug_vbos.index_vbo);
     Ichigo::Internal::gl.glBindBuffer(GL_ARRAY_BUFFER, mococo_skeleton_debug_vbos.geometry_vbo);
@@ -578,7 +549,7 @@ void Ichigo::Internal::init() {
     Bana::FixedArray<ColouredVertex> debug_skeleton_verts = Bana::make_fixed_array<ColouredVertex>(mococo_skeleton.size * 4, Internal::temp_allocator);
     Bana::FixedArray<u32>            debug_skeleton_idx   = Bana::make_fixed_array<u32>(mococo_skeleton.size * 6, Internal::temp_allocator);
 
-    for (i32 i = 0; i < final_xforms.size; ++i) {
+    for (i32 i = 0; i < mococo_skeleton.size; ++i) {
     // for (i32 i = 0; i < 2; ++i) {
         u32 in[] = {
             (u32) debug_skeleton_verts.size,     (u32) debug_skeleton_verts.size + 1, (u32) debug_skeleton_verts.size + 2,
@@ -587,10 +558,10 @@ void Ichigo::Internal::init() {
 
         debug_skeleton_idx.append(in, ARRAY_LEN(in));
 
-        vec4 p = final_xforms[i].value * vec4{0.0f, 0.0f, 0.0f, 1.0f};
-        vec4 p1 = final_xforms[i].value * vec4{0.02f, 0.0f, 0.0f, 1.0f};
-        vec4 p2 = final_xforms[i].value * vec4{0.0f, 0.02f, 0.0f, 1.0f};
-        vec4 p3 = final_xforms[i].value * vec4{0.02f, 0.02f, 0.0f, 1.0f};
+        vec4 p  = mococo_skeleton[i].bind_matrix * vec4{0.0f, 0.0f, 0.0f, 1.0f};
+        vec4 p1 = mococo_skeleton[i].bind_matrix * vec4{0.02f, 0.0f, 0.0f, 1.0f};
+        vec4 p2 = mococo_skeleton[i].bind_matrix * vec4{0.0f, 0.02f, 0.0f, 1.0f};
+        vec4 p3 = mococo_skeleton[i].bind_matrix * vec4{0.02f, 0.02f, 0.0f, 1.0f};
 
         ICHIGO_INFO("Bone %d (%.*s) final_xform pos in armature space is %f,%f,%f", i, PFBS(mococo_skeleton[i].name), p.x, p.y, p.z);
 
@@ -599,8 +570,10 @@ void Ichigo::Internal::init() {
             colour = {1.0f, 0.0f, 0.0f};
         } else if (mococo_skeleton[i].name == "目先.L" || mococo_skeleton[i].name == "目先.R") {
             colour = {1.0f, 1.0f, 0.0f};
-        } else if (mococo_skeleton[i].name == "紐_00.L" || mococo_skeleton[i].name == "紐_00.R") {
+        } else if (mococo_skeleton[i].name == "紐_04.L" || mococo_skeleton[i].name == "紐_04.R") {
             colour = {0.0f, 0.0f, 1.0f};
+        } else if (mococo_skeleton[i].name == "コート_00_00.L" || mococo_skeleton[i].name == "コート_00_00.R") {
+            colour = {0.0f, 0.5f, 1.0f};
         } else if (mococo_skeleton[i].name == "首鎖_00_08") {
             colour = {0.0f, 1.0f, 0.0f};
         } else {

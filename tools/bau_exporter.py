@@ -1,5 +1,7 @@
 import bpy
 import mathutils
+import math
+from bpy_extras.io_utils import axis_conversion
 
 ## Useful stuff
 ## Gives us all the bones: for bone in arm.data.bones: print(bone)
@@ -43,12 +45,7 @@ def do_export(context, filepath):
         for i, bone in enumerate(arm.data.bones):
             bone_map[bone.name] = i
 
-        axis_convert = mathutils.Matrix((
-            (1,0,0,0),
-            (0,0,-1,0),
-            (0,1,0,0),
-            (0,0,0,1),
-        ))
+        axis_convert = axis_conversion(from_forward='-Y', from_up='Z', to_forward='Z', to_up='Y').to_4x4()
 
         root_found = False
         for bone in arm.data.bones:
@@ -61,31 +58,22 @@ def do_export(context, filepath):
                     return {'CANCELLED'}
 
                 root_found = True
-                # bind_matrix = mathutils.Matrix.Translation(bone.head) @ bone.matrix.to_4x4()
-                bind_matrix = bone.matrix_local.copy()
             else:
                 parent = bone_map[bone.parent.name]
-                # bind_matrix = mathutils.Matrix.Translation(bone.head) @ bone.matrix.to_4x4()
-                bind_matrix = bone.parent.matrix_local.inverted() @ bone.matrix_local
 
+            bind_matrix = axis_convert @ bone.bone.matrix_local
             inverse_bind_matrix = bind_matrix.inverted()
-            # inverse_bind_matrix = axis_convert @ inverse_bind_matrix
-            # bind_matrix = axis_convert @ bind_matrix
 
             bind_matrix_str  = matrix_to_string(bind_matrix)
             inverse_bind_str = matrix_to_string(inverse_bind_matrix)
 
             f.write(f"Bd {parent} {bone.name}\nBbm{bind_matrix_str}\nBib{inverse_bind_str}\n")
 
-        # group_to_bone = {i: group.name for i, group in enumerate(obj.vertex_groups)}
-
         for i, vertex in enumerate(obj.data.vertices):
             f.write(f"Bw {i} {len(vertex.groups)}")
             for group in vertex.groups:
                 f.write(f" {group.group} {group.weight:.6f}")
-                # print(f"group: {group_to_bone[group.group]} weight: {group.weight}")
             f.write("\n")
-
 
     return {'FINISHED'}
 
