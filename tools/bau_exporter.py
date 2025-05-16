@@ -30,6 +30,12 @@ def matrix_to_string(matrix):
 
     return ret[:-1]
 
+def vec3_to_string(v):
+    return f"{v.x} {v.y} {v.z}"
+
+def quaternion_to_string(q):
+    return f"{q.w} {q.x} {q.y} {q.z}"
+
 def do_export(context, filepath):
     with open(filepath, 'w', encoding='utf-8', newline='\n') as f:
         f.write(f"{BAU_VERSION_NUMBER} # BAU file version number.\n")
@@ -84,16 +90,19 @@ def do_animation_export(context, filepath):
         obj = context.selected_objects[0]
         arm = obj.find_armature()
 
-        for i, pose_bone in enumerate(arm.pose.bones):
-            loc = None
-            rot = None
-            scale = None
+        bone_count = len(arm.pose.bones.keys())
+        f.write(f"Bc {bone_count}\n")
 
-            if pose_bone.parent is None:
-                loc, rot, scale = pose_bone.matrix.decompose()
-            else:
-                loc, rot, scale = (pose_bone.parent.matrix.inverted() @ pose_bone.matrix).decompose()
-            f.write(f"Bx {i} {loc} {rot} {scale}\n")
+        axis_convert = axis_conversion(from_forward='-Y', from_up='Z', to_forward='Z', to_up='Y').to_4x4()
+
+        for i, pose_bone in enumerate(arm.pose.bones):
+            matrix = axis_convert @ pose_bone.matrix
+            if pose_bone.parent:
+                parent = axis_convert @ pose_bone.parent.matrix
+                matrix = parent.inverted() @ matrix
+
+            loc, rot, scale = matrix.decompose()
+            f.write(f"Bx {i} {vec3_to_string(loc)} {quaternion_to_string(rot)} {vec3_to_string(scale)}\n")
 
     return {'FINISHED'}
 

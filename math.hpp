@@ -16,6 +16,10 @@
 template<typename T>
 inline T clamp(T value, T min, T max);
 
+inline f32 deg2rad(f32 deg) {
+    return deg * (MATH_PI / 180.0f);
+}
+
 template<typename T>
 struct Vec2 {
     union {
@@ -264,6 +268,32 @@ using vec3 = Vec3<f32>;
 using vec4 = Vec4<f32>;
 using mat4 = Mat4<f32>;
 
+struct Quaternion {
+    f32 w;
+    f32 x;
+    f32 y;
+    f32 z;
+
+    Quaternion conjugated() {
+        return {w, -x, -y, -z};
+    }
+
+    mat4 as_rotation_mat4() {
+        return {
+            {w*w + x*x - y*y - z*z, 2*x*y - 2*w*z, 2*x*z + 2*w*y, 0.0f},
+            {2*x*y + 2*w*z, w*w - x*x + y*y - z*z, 2*y*z - 2*w*x, 0.0f},
+            {2*x*z - 2*w*y, 2*y*z + 2*w*x, w*w - x*x - y*y + z*z, 0.0f},
+            {0.0f,          0.0f,          0.0f,                  1.0f},
+        };
+    }
+};
+
+inline Quaternion qrot(f32 theta, vec3 axis) {
+    f32 half  = deg2rad(theta / 2);
+    f32 shalf = sin(half);
+    return {cos(half), axis.x * shalf, axis.y * shalf, axis.z * shalf};
+}
+
 template <typename T>
 struct Rect {
     Vec2<T> pos;
@@ -401,6 +431,17 @@ inline Vec2<f32> get_translation2d(Mat4<f32> m) {
     return {m.a.w, m.b.w};
 }
 
+struct Xform {
+    vec3 translation;
+    Quaternion rotation;
+    vec3 scale;
+};
+
+inline mat4 xform_to_mat4(Xform xform) {
+    return translate3d(xform.translation) * xform.rotation.as_rotation_mat4() * scale3d(xform.scale);
+    // return xform.rotation.as_rotation_mat4();
+}
+
 template<typename T>
 inline T dot(Vec2<T> lhs, Vec2<T> rhs) {
     return lhs.x * rhs.x + lhs.y * rhs.y;
@@ -452,10 +493,6 @@ inline mat4 look_at(vec3 eye, vec3 center, vec3 up) {
         // {right.z, cam_up.z, forward.z, dot(forward, position)},
         // {0.0f, 0.0f, 0.0f, 1.0f},
     };
-}
-
-inline f32 deg2rad(f32 deg) {
-    return deg * (MATH_PI / 180.0f);
 }
 
 inline bool rectangles_intersect(Rect<f32> rect1, Rect<f32> rect2) {

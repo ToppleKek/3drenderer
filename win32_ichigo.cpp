@@ -626,6 +626,7 @@ i32 WinMain(HINSTANCE instance, [[maybe_unused]] HINSTANCE prev_instance, [[mayb
 
     // Platform init
     Bana::Platform::init();
+
     LARGE_INTEGER frequency;
     QueryPerformanceFrequency(&frequency);
     performance_frequency = frequency.QuadPart;

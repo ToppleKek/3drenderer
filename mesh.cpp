@@ -18,13 +18,10 @@ static isize find_material(const Bana::Array<Material> &mats, const Bana::String
 
 static vec3 read_vec3(Bana::BufferReader *br) {
     vec3 ret;
-    ret.x = std::atof(br->current_ptr());
-    br->skip_to_after(' ');
 
-    ret.y = std::atof(br->current_ptr());
-    br->skip_to_after(' ');
-
-    ret.z = std::atof(br->current_ptr());
+    ret.x = br->read_f32();
+    ret.y = br->read_f32();
+    ret.z = br->read_f32();
 
     return ret;
 }
@@ -40,6 +37,16 @@ static vec4 read_vec4(Bana::BufferReader *br) {
     return ret;
 }
 
+static Quaternion read_quaternion(Bana::BufferReader *br) {
+    Quaternion ret;
+
+    ret.w = br->read_f32();
+    ret.x = br->read_f32();
+    ret.y = br->read_f32();
+    ret.z = br->read_f32();
+
+    return ret;
+}
 
 static mat4 read_mat4(Bana::BufferReader *br) {
     mat4 ret;
@@ -111,6 +118,49 @@ Bana::Optional<Bana::FixedArray<Bone>> load_bau(Bana::String filename, Bana::All
     }
 
     // TODO: Skinning.
+
+    return ret;
+}
+
+Bana::Optional<Bana::FixedArray<Xform>> load_bau_anim(Bana::String filename, Bana::Allocator allocator) {
+    auto d = Ichigo::Internal::platform_read_entire_file_sync(filename, Ichigo::Internal::temp_allocator);
+    if (!d.has_value) return {};
+    auto data = d.value;
+    Bana::BufferReader br = {(char *) data.data, (usize) data.size, 0};
+
+
+    i32 version_number = (i32) br.read_i64();
+    assert(version_number == 1);
+    br.skip_to_after('\n');
+
+    br.consume('B');
+    br.consume('c');
+    br.consume(' ');
+    i32 bone_count = (i32) br.read_i64();
+    br.consume('\n');
+
+    auto ret = Bana::make_fixed_array<Xform>(bone_count, allocator);
+
+    for (i32 i = 0; i < bone_count; ++i) {
+        assert(br.has_more_data());
+        Bana::String line      = br.view_next_line_with_newline();
+        // FIXME: MAJOR GARBAGE ALARM!!!
+        line[line.length - 1]  = 0;
+        Bana::BufferReader lbr = {line.data, line.length, 0};
+        Xform xform            = {};
+
+        lbr.consume('B');
+        lbr.consume('x');
+
+        i32 bone_idx = (i32) lbr.read_i64();
+        // TODO: Not sure if we really even need the bone index in the file format.
+        assert(bone_idx == i);
+        xform.translation = read_vec3(&lbr);
+        xform.rotation    = read_quaternion(&lbr);
+        xform.scale       = read_vec3(&lbr);
+
+        ret.append(xform);
+    }
 
     return ret;
 }
