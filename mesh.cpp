@@ -59,7 +59,9 @@ static mat4 read_mat4(Bana::BufferReader *br) {
     return ret;
 }
 
-Bana::Optional<Bana::FixedArray<Bone>> load_bau(Bana::String filename, Bana::Allocator allocator) {
+
+#define VERIFY(STATEMENT) if (!STATEMENT) return {}
+Bana::Optional<BauArmature> load_bau(Bana::String filename, Bana::Allocator allocator) {
     auto d = Ichigo::Internal::platform_read_entire_file_sync(filename, Ichigo::Internal::temp_allocator);
     if (!d.has_value) return {};
     auto data = d.value;
@@ -73,12 +75,13 @@ Bana::Optional<Bana::FixedArray<Bone>> load_bau(Bana::String filename, Bana::All
     // Bone has name, parent_index, bind_matrix, and inverse_bind_matrix.
     Bana::String line = br.view_until_after('\n');
     Bana::BufferReader lbr = {(char *) line.data, (usize) line.length, 0};
-    lbr.consume('B');
-    lbr.consume('c');
-    lbr.consume(' ');
+    VERIFY(lbr.consume('B'));
+    VERIFY(lbr.consume('c'));
+    VERIFY(lbr.consume(' '));
     i32 bone_count = (i32) lbr.read_i64();
 
-    auto ret = Bana::make_fixed_array<Bone>(bone_count, allocator);
+    BauArmature ret = {};
+    ret.bones = Bana::make_fixed_array<Bone>(bone_count, allocator);
 
     for (i32 i = 0; i < bone_count; ++i) {
         Bone b;
@@ -87,37 +90,64 @@ Bana::Optional<Bana::FixedArray<Bone>> load_bau(Bana::String filename, Bana::All
 
             line.data[line.length - 1] = '\0';
             Bana::BufferReader lbr = {(char *) line.data, (usize) line.length, 0};
-            assert(lbr.consume('B'));
-            assert(lbr.consume('d'));
-            assert(lbr.consume(' '));
+            VERIFY(lbr.consume('B'));
+            VERIFY(lbr.consume('d'));
+            VERIFY(lbr.consume(' '));
 
             b.parent_index = (i32) lbr.read_i64();
             assert(lbr.consume(' '));
             b.name = lbr.slice_until('\0', allocator);
         }
         {
-            assert(br.consume('B'));
-            assert(br.consume('b'));
-            assert(br.consume('m'));
-            assert(br.consume(' '));
+            VERIFY(br.consume('B'));
+            VERIFY(br.consume('b'));
+            VERIFY(br.consume('m'));
+            VERIFY(br.consume(' '));
 
             b.bind_matrix = read_mat4(&br);
             br.skip_to_after('\n');
         }
         {
-            assert(br.consume('B'));
-            assert(br.consume('i'));
-            assert(br.consume('b'));
-            assert(br.consume(' '));
+            VERIFY(br.consume('B'));
+            VERIFY(br.consume('i'));
+            VERIFY(br.consume('b'));
+            VERIFY(br.consume(' '));
 
             b.inverse_bind_matrix = read_mat4(&br);
             br.skip_to_after('\n');
         }
 
-        ret.append(b);
+        ret.bones.append(b);
     }
 
-    // TODO: Skinning.
+    VERIFY(br.consume('V'));
+    VERIFY(br.consume('c'));
+    VERIFY(br.consume(' '));
+
+    i32 vertex_count  = (i32) br.read_i64();
+    ret.skinning      = Bana::make_fixed_array<SkinningInformation>(vertex_count, allocator);
+    ret.skinning.size = vertex_count;
+
+    VERIFY(br.consume('\n'));
+
+    for (i32 i = 0; i < vertex_count; ++i) {
+        auto line = br.view_next_line_with_newline();
+        line.data[line.length - 1] = '\0';
+        Bana::BufferReader lbr = {(char *) line.data, (usize) line.length, 0};
+
+        VERIFY(lbr.consume('B'));
+        VERIFY(lbr.consume('w'));
+        VERIFY(lbr.consume(' '));
+
+        i32 vertex_idx = (i32) lbr.read_i64();
+        assert(vertex_idx == i); // TODO: Do we really need the vertex index in the format since they are all listed in order? Probably not.
+
+        i32 bone_influence_count = (i32) lbr.read_i64();
+        for (i32 j = 0; j < bone_influence_count; ++j) {
+            ret.skinning[i].bones[j]   = (i32) lbr.read_i64();
+            ret.skinning[i].weights[j] = lbr.read_f32();
+        }
+    }
 
     return ret;
 }
@@ -372,3 +402,4 @@ Bana::Optional<MeshGroup> load_wavefront(Bana::String filename, Bana::Allocator 
 
     return ret;
 }
+#undef VERIFY

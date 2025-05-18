@@ -809,8 +809,10 @@ i32 WinMain(HINSTANCE instance, [[maybe_unused]] HINSTANCE prev_instance, [[mayb
     GET_ADDR_OF_OPENGL_FUNCTION(glBindVertexBuffer);
     GET_ADDR_OF_OPENGL_FUNCTION(glVertexAttribBinding);
     GET_ADDR_OF_OPENGL_FUNCTION(glVertexAttribFormat);
+    GET_ADDR_OF_OPENGL_FUNCTION(glVertexAttribIFormat);
     GET_ADDR_OF_OPENGL_FUNCTION(glDepthRange);
     GET_ADDR_OF_OPENGL_FUNCTION(glDepthRangef);
+    GET_ADDR_OF_OPENGL_FUNCTION(glBindBufferBase);
 
     ICHIGO_INFO("OpenGL init took %lldms!", win32_get_time_ms() - start_ms);
 

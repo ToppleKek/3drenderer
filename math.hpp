@@ -9,6 +9,8 @@
 
 #pragma once
 #include "common.hpp"
+#include "constants.hpp"
+
 #include <cmath>
 
 #define MATH_PI 3.14159265
@@ -301,12 +303,23 @@ struct Rect {
     T h;
 };
 
-// A textured vertex contains both a position and UV coordinates.
-// TODO: Maybe this is stupid and we should just have one type of vertex. It would probably simplify the shader code.
-struct TexturedVertex {
+struct __attribute__((packed)) TexturedVertex {
     vec3 pos;
     vec2 tex;
     vec3 normal;
+};
+
+struct __attribute__((packed)) BoneWeight {
+    i32 bone_index;
+    f32 weight;
+};
+
+struct __attribute__((packed)) SkinnedVertex {
+    vec3 pos;
+    vec2 tex;
+    vec3 normal;
+    i32 bones[MAX_BONE_INFLUENCE];
+    f32 weights[MAX_BONE_INFLUENCE];
 };
 
 struct __attribute__((packed)) ColouredVertex {

@@ -47,9 +47,9 @@ def do_export(context, filepath):
         bone_count = len(arm.data.bones.keys())
         f.write(f"Bc {bone_count}\n")
 
-        bone_map = {}
-        for i, bone in enumerate(arm.data.bones):
-            bone_map[bone.name] = i
+        # bone_map = {}
+        # for i, bone in enumerate(arm.data.bones):
+        #     bone_map[bone.name] = i
 
         axis_convert = axis_conversion(from_forward='-Y', from_up='Z', to_forward='Z', to_up='Y').to_4x4()
 
@@ -65,9 +65,9 @@ def do_export(context, filepath):
 
                 root_found = True
             else:
-                parent = bone_map[bone.parent.name]
+                parent = arm.data.bones.find(bone.parent.name)
 
-            bind_matrix = axis_convert @ bone.bone.matrix_local
+            bind_matrix = axis_convert @ bone.matrix_local
             inverse_bind_matrix = bind_matrix.inverted()
 
             bind_matrix_str  = matrix_to_string(bind_matrix)
@@ -75,10 +75,17 @@ def do_export(context, filepath):
 
             f.write(f"Bd {parent} {bone.name}\nBbm{bind_matrix_str}\nBib{inverse_bind_str}\n")
 
+        f.write(f"Vc {len(obj.data.vertices)}\n")
         for i, vertex in enumerate(obj.data.vertices):
             f.write(f"Bw {i} {len(vertex.groups)}")
             for group in vertex.groups:
-                f.write(f" {group.group} {group.weight:.6f}")
+                group_name = obj.vertex_groups[group.group].name
+                bone_index = arm.data.bones.find(group_name)
+                if bone_index == -1:
+                    print("BAU ERROR: No corresponding bone for vertex group {group_name} (group index: {group.group})")
+                    return {'CANCELLED'}
+
+                f.write(f" {bone_index} {group.weight:.6f}")
             f.write("\n")
 
     return {'FINISHED'}

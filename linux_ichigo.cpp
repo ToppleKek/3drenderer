@@ -220,6 +220,13 @@ i32 main() {
     GET_ADDR_OF_OPENGL_FUNCTION(glUniformMatrix3x4fv);
     GET_ADDR_OF_OPENGL_FUNCTION(glUniformMatrix4x3fv);
     GET_ADDR_OF_OPENGL_FUNCTION(glFinish);
+    GET_ADDR_OF_OPENGL_FUNCTION(glBindVertexBuffer);
+    GET_ADDR_OF_OPENGL_FUNCTION(glVertexAttribBinding);
+    GET_ADDR_OF_OPENGL_FUNCTION(glVertexAttribFormat);
+    GET_ADDR_OF_OPENGL_FUNCTION(glVertexAttribIFormat);
+    GET_ADDR_OF_OPENGL_FUNCTION(glDepthRange);
+    GET_ADDR_OF_OPENGL_FUNCTION(glDepthRangef);
+    GET_ADDR_OF_OPENGL_FUNCTION(glBindBufferBase);
 
     Ichigo::Internal::init();
 

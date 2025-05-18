@@ -31,6 +31,7 @@ EMBED("shaders/basic_vert.glsl", basic_vert_src)
 EMBED("shaders/basic_texture.glsl", basic_texture_src)
 EMBED("shaders/basic_colour.glsl", basic_colour_src)
 EMBED("shaders/basic_colour_vert.glsl", basic_colour_vert_src)
+EMBED("shaders/skinned_mesh_vert.glsl", skinned_mesh_vert_src)
 
 EMBED("assets/bookie.png", bookie_png)
 
@@ -51,17 +52,22 @@ static u32 last_window_width  = 0;
 
 static GLuint basic_shader_program = 0;
 static GLuint basic_colour_shader_program = 0;
+static GLuint skinned_mesh_program = 0;
 static GLuint basic_pos_tex_vao = 0;
 static GLuint basic_pos_col_vao = 0;
+static GLuint skinned_mesh_vao  = 0;
 static GLuint test_geometry_vbo = 0;
 static GLuint test_index_vbo    = 0;
+static GLuint skinning_information_ubo = 0;
 
+static GLuint bone_info_ubo = 0;
 static GLuint mococo_geometry_vbo = 0;
 static Bana::FixedArray<GLuint> mococo_index_vbos  = {};
 static usize skeleton_index_size = 0;
 static Bana::FixedArray<i32> mococo_index_sizes = {};
 static Bana::FixedArray<Material> mococo_materials = {};
 static Bana::FixedArray<Bone> mococo_skeleton = {};
+static Bana::FixedArray<Xform> mococo_animation = {};
 // Global state that is visible in ichigo.hpp
 Ichigo::GameState Ichigo::game_state        = {};
 f32 Ichigo::Internal::target_frame_time     = 0.016f;
@@ -114,6 +120,52 @@ static vec3 light_colour         = {1.0f, 1.0f, 1.0f};
 static vec3 ambient_light_colour = {0.2f, 0.2f, 0.2f};
 
 static Bana::FixedStringMap<Ichigo::TextureID> texture_maps;
+static Bana::FixedArray<Bana::Optional<mat4>> final_xforms;
+
+static mat4 get_parent_xform(Bana::FixedArray<Bone> &skeleton, Bana::FixedArray<Xform> &animation, Bana::FixedArray<Bana::Optional<mat4>> &final_xforms, i32 bone_index) {
+    i32 parent_index = skeleton[bone_index].parent_index;
+    if (final_xforms[parent_index].has_value) return final_xforms[parent_index].value;
+    if (skeleton[parent_index].parent_index == -1) {
+        // TODO: We could just set it here, but if you call this function you should probably already have the root xform set.
+        assert(false && "You must set the root xform before calling this function.");
+    }
+
+    final_xforms[parent_index] = get_parent_xform(skeleton, animation, final_xforms, parent_index) * xform_to_mat4(animation[parent_index]);
+    ICHIGO_INFO("Hello this path is being taken lol");
+    return final_xforms[parent_index].value;
+}
+
+static void update_mococo_final_xforms() {
+    final_xforms.size = mococo_skeleton.size;
+    std::memset(final_xforms.data, 0, final_xforms.size * sizeof(Bana::Optional<mat4>));
+    auto ubo_data = Bana::make_fixed_array<mat4>(MAX_BONES_IN_SKELETON * 2, Ichigo::Internal::temp_allocator);
+
+    for (i32 i = 0; i < mococo_skeleton.size; ++i) {
+        if (mococo_skeleton[i].parent_index == -1) {
+            final_xforms[i] = xform_to_mat4(mococo_animation[i]);
+        } else if (!final_xforms[i].has_value) {
+            final_xforms[i] = get_parent_xform(mococo_skeleton, mococo_animation, final_xforms, i) * xform_to_mat4(mococo_animation[i]);
+        }
+
+        ubo_data.append(final_xforms[i].value);
+    }
+
+    for (i32 i = mococo_skeleton.size; i < MAX_BONES_IN_SKELETON; ++i) {
+        ubo_data.append(M4_IDENTITY_F32);
+    }
+
+    for (i32 i = 0; i < mococo_skeleton.size; ++i) {
+        ubo_data.append(mococo_skeleton[i].inverse_bind_matrix);
+    }
+
+    for (i32 i = mococo_skeleton.size; i < MAX_BONES_IN_SKELETON; ++i) {
+        ubo_data.append(M4_IDENTITY_F32);
+    }
+
+    GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, bone_info_ubo));
+    GL_CALL(glBufferData(GL_UNIFORM_BUFFER, sizeof(mat4) * MAX_BONES_IN_SKELETON * 2, ubo_data.data, GL_STATIC_DRAW));
+    GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+}
 
 // Render one frame.
 static void frame_render() {
@@ -132,7 +184,7 @@ static void frame_render() {
     static f32 shit = 0.0f;
     mat4 model  = qrot(shit, {1.0f, 0.0f, 0.0f}).as_rotation_mat4();
     // mat4 model1 = translate3d({1.0f, 0.0f, -1.0f}) * yrot3d(shit);
-    mat4 model1 = translate3d({1.0f, 0.0f, -1.0f}) * qrot(shit, {0.0f, 1.0f, 0.0f}).as_rotation_mat4();
+    mat4 model1 = translate3d({1.0f, 0.0f, -1.0f});
     // mat4 model2 = translate3d({3.0f, 0.0f, -3.0f});
     // mat4 model2 = translate3d({2.0f, 0.0f, 0.0f}) * xrot3d(-90.0f);
     // mat4 model2 = translate3d({2.0f, 0.0f, 0.0f}) * xrot3d(-90.0f);
@@ -143,10 +195,6 @@ static void frame_render() {
     if (shit >= 360.0f) {
         shit -= 360.0f;
     }
-    // mat4 view  = translate3d({0.0f, 0.0f, -3.0f});
-    // vec3 mimizu = (camera_pos + camera_front);
-    // vec4 target = yrot3d(shit2) * xrot3d(shit2) * vec4{mimizu.x, mimizu.y, mimizu.z, 1.0f};
-    // vec3 happy  = {target.x, target.y, target.z};
 
     f32 yr = deg2rad(camera_yaw);
     f32 pr = deg2rad(camera_pitch);
@@ -164,10 +212,6 @@ static void frame_render() {
     // view.a.z = 3.0f;
 
     mat4 proj = perspective(45.0f, (f32) Ichigo::Internal::window_width / (f32) Ichigo::Internal::window_height, 0.01f, 100.0f);
-
-    // mat4 proj  = infinite_perspective(0, Ichigo::Internal::window_width, 0, Ichigo::Internal::window_height, 0.1f);
-    // auto fucking_proj = glm::perspective(glm::radians(45.0f), (f32) Ichigo::Internal::window_width / (f32) Ichigo::Internal::window_height, 0.1f, 100.0f);
-    // auto fucking_proj = glm::ortho(0.0f, 800.0f, 0.0f, (f32) 600.0f, 0.1f, 100.0f);
 
     Ichigo::Internal::gl.glUseProgram(basic_shader_program);
     Ichigo::Internal::gl.glBindTexture(GL_TEXTURE_2D, Ichigo::Internal::textures[bookie_tex_id].id);
@@ -199,21 +243,48 @@ static void frame_render() {
 
     Ichigo::Internal::gl.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-    Ichigo::Internal::gl.glBindVertexBuffer(0, mococo_geometry_vbo, 0, sizeof(TexturedVertex));
-    Ichigo::Internal::gl.glUniformMatrix4fv(model_loc, 1, GL_TRUE, (GLfloat *) &model1);
+    GL_CALL(glUseProgram(skinned_mesh_program));
+    GL_CALL(glBindVertexArray(skinned_mesh_vao));
+    GL_CALL(glBindVertexBuffer(0, mococo_geometry_vbo, 0, sizeof(SkinnedVertex)));
+
+    model_loc          = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "model");
+    view_loc           = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "view");
+    proj_loc           = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "proj");
+    tex_loc            = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "entity_texture");
+    ambient_light_loc  = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "ambient_light");
+    test_light_pos_loc = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "test_light_pos");
+    test_light_col_loc = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "test_light_colour");
+    specular_exp_loc   = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "specular_exponent");
+
+    // GLint final_xforms_loc          = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "final_xforms");
+    // GLint inverse_bind_matrices_loc = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "inverse_bind_matrices");
+
+    update_mococo_final_xforms();
+
+    GL_CALL(glUniform1i(tex_loc, 0));
+    GL_CALL(glUniformMatrix4fv(model_loc, 1, GL_TRUE, (GLfloat *) &model1));
+    GL_CALL(glUniformMatrix4fv(view_loc, 1, GL_TRUE, (GLfloat *) &view));
+    GL_CALL(glUniformMatrix4fv(proj_loc, 1, GL_TRUE, (GLfloat *) &proj));
+    GL_CALL(glUniform3fv(ambient_light_loc, 1, (f32 *) &ambient_light_colour));
+    GL_CALL(glUniform3fv(test_light_pos_loc, 1, (f32 *) &light_pos));
+    GL_CALL(glUniform3fv(test_light_col_loc, 1, (f32 *) &light_colour));
+
+    // GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, bone_info_ubo));
+    GL_CALL(glBindBufferBase(GL_UNIFORM_BUFFER, 0, bone_info_ubo));
+    // GL_CALL(glUniformMatrix4fv(final_xforms_loc, final_xforms.size, GL_TRUE, (GLfloat *) final_xforms.data));
 
     for (i32 i = 0; i < mococo_index_vbos.size; ++i) {
         auto t = texture_maps.get(mococo_materials[i].diffuse_map_file);
         if (t.has_value) {
-            Ichigo::Internal::gl.glBindTexture(GL_TEXTURE_2D, Ichigo::Internal::textures[*t.value].id);
+            GL_CALL(glBindTexture(GL_TEXTURE_2D, Ichigo::Internal::textures[*t.value].id));
         } else {
             assert(false);
         }
 
-        Ichigo::Internal::gl.glUniform1f(specular_exp_loc, mococo_materials[i].specular_exponent);
-        Ichigo::Internal::gl.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mococo_index_vbos.data[i]);
+        GL_CALL(glUniform1f(specular_exp_loc, mococo_materials[i].specular_exponent));
+        GL_CALL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mococo_index_vbos.data[i]));
         // ICHIGO_INFO("Number of indices: %d", mococo_index_sizes.data[i]);
-        Ichigo::Internal::gl.glDrawElements(GL_TRIANGLES, mococo_index_sizes.data[i], GL_UNSIGNED_INT, 0);
+        GL_CALL(glDrawElements(GL_TRIANGLES, mococo_index_sizes.data[i], GL_UNSIGNED_INT, 0));
     }
 
     GL_CALL(glBindVertexArray(basic_pos_col_vao));
@@ -287,12 +358,6 @@ void Ichigo::Internal::do_frame() {
         last_dpi_scale = dpi_scale;
     }
 
-#ifdef ICHIGO_DEBUG
-    // Toggle the debug menu when F3 is pressed.
-    if (Ichigo::Internal::keyboard_state[Ichigo::IK_F3].down_this_frame) {
-        show_debug_menu = !show_debug_menu;
-    }
-
 #define CAMERA_SPEED 2.0f
 
     if (Ichigo::Internal::keyboard_state[IK_W].down) {
@@ -330,6 +395,12 @@ void Ichigo::Internal::do_frame() {
         if (camera_yaw <  -180.0f) camera_yaw = 180.0f;
 
         Ichigo::Internal::set_mouse_pos(c.x, c.y);
+    }
+
+#ifdef ICHIGO_DEBUG
+    // Toggle the debug menu when F3 is pressed.
+    if (Ichigo::Internal::keyboard_state[Ichigo::IK_F3].down_this_frame) {
+        show_debug_menu = !show_debug_menu;
     }
 
     ImGui_ImplOpenGL3_NewFrame();
@@ -420,19 +491,6 @@ static GLuint link_program(GLuint vertex_shader_id, GLuint fragment_shader_id) {
     return program_id;
 }
 
-static mat4 get_parent_xform(Bana::FixedArray<Bone> &skeleton, Bana::FixedArray<Xform> &animation, Bana::FixedArray<Bana::Optional<mat4>> &final_xforms, i32 bone_index) {
-    i32 parent_index = skeleton[bone_index].parent_index;
-    if (final_xforms[parent_index].has_value) return final_xforms[parent_index].value;
-    if (skeleton[parent_index].parent_index == -1) {
-        // TODO: We could just set it here, but if you call this function you should probably already have the root xform set.
-        assert(false && "You must set the root xform before calling this function.");
-    }
-
-    final_xforms[parent_index] = get_parent_xform(skeleton, animation, final_xforms, parent_index) * xform_to_mat4(animation[parent_index]);
-    ICHIGO_INFO("Hello this path is being taken lol");
-    return final_xforms[parent_index].value;
-}
-
 void Ichigo::Internal::init() {
     BEGIN_TIMED_BLOCK(engine_init);
 
@@ -484,6 +542,7 @@ void Ichigo::Internal::init() {
     GLuint basic_texture_shader       = Ichigo::Internal::gl.glCreateShader(GL_FRAGMENT_SHADER);
     GLuint basic_colour_vertex_shader = Ichigo::Internal::gl.glCreateShader(GL_VERTEX_SHADER);
     GLuint basic_colour_shader        = Ichigo::Internal::gl.glCreateShader(GL_FRAGMENT_SHADER);
+    GLuint skinned_mesh_vertex_shader = Ichigo::Internal::gl.glCreateShader(GL_VERTEX_SHADER);
 
     compile_shader(basic_vertex_shader,  (const GLchar *) basic_vert_src, basic_vert_src_len);
     ICHIGO_INFO("basic_vertex_shader compiled successfully.");
@@ -492,15 +551,18 @@ void Ichigo::Internal::init() {
 
     compile_shader(basic_colour_vertex_shader, (const GLchar *) basic_colour_vert_src, basic_colour_vert_src_len);
     compile_shader(basic_colour_shader, (const GLchar *) basic_colour_src, basic_colour_src_len);
+    compile_shader(skinned_mesh_vertex_shader, (const GLchar *) skinned_mesh_vert_src, skinned_mesh_vert_src_len);
 
-    basic_shader_program = link_program(basic_vertex_shader, basic_texture_shader);
+    basic_shader_program        = link_program(basic_vertex_shader, basic_texture_shader);
     basic_colour_shader_program = link_program(basic_colour_vertex_shader, basic_colour_shader);
+    skinned_mesh_program        = link_program(skinned_mesh_vertex_shader, basic_texture_shader);
 
     Ichigo::Internal::gl.glDeleteShader(basic_vertex_shader);
     Ichigo::Internal::gl.glDeleteShader(basic_texture_shader);
 
     GL_CALL(glGenVertexArrays(1, &basic_pos_tex_vao));
     GL_CALL(glGenVertexArrays(1, &basic_pos_col_vao));
+    GL_CALL(glGenVertexArrays(1, &skinned_mesh_vao));
     GL_CALL(glBindVertexArray(basic_pos_tex_vao));
 
     GL_CALL(glVertexAttribBinding(0, 0));
@@ -525,10 +587,28 @@ void Ichigo::Internal::init() {
     GL_CALL(glEnableVertexAttribArray(1));
     GL_CALL(glEnableVertexAttribArray(2));
 
-    Ichigo::Internal::gl.glGenBuffers(1, &test_geometry_vbo);
-    Ichigo::Internal::gl.glGenBuffers(1, &test_index_vbo);
-    Ichigo::Internal::gl.glBindBuffer(GL_ARRAY_BUFFER, test_geometry_vbo);
-    Ichigo::Internal::gl.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, test_index_vbo);
+    GL_CALL(glBindVertexArray(skinned_mesh_vao));
+
+    GL_CALL(glVertexAttribBinding(0, 0));
+    GL_CALL(glVertexAttribBinding(1, 0));
+    GL_CALL(glVertexAttribBinding(2, 0));
+    GL_CALL(glVertexAttribBinding(3, 0));
+    GL_CALL(glVertexAttribBinding(4, 0));
+    GL_CALL(glVertexAttribFormat(0, 3, GL_FLOAT, GL_FALSE, 0));
+    GL_CALL(glVertexAttribFormat(1, 2, GL_FLOAT, GL_FALSE, offsetof(SkinnedVertex, tex)));
+    GL_CALL(glVertexAttribFormat(2, 3, GL_FLOAT, GL_FALSE, offsetof(SkinnedVertex, normal)));
+    GL_CALL(glVertexAttribIFormat(3, MAX_BONE_INFLUENCE, GL_INT, offsetof(SkinnedVertex, bones)));
+    GL_CALL(glVertexAttribFormat(4, MAX_BONE_INFLUENCE, GL_FLOAT, GL_FALSE, offsetof(SkinnedVertex, weights)));
+    GL_CALL(glEnableVertexAttribArray(0));
+    GL_CALL(glEnableVertexAttribArray(1));
+    GL_CALL(glEnableVertexAttribArray(2));
+    GL_CALL(glEnableVertexAttribArray(3));
+    GL_CALL(glEnableVertexAttribArray(4));
+
+    GL_CALL(glGenBuffers(1, &test_geometry_vbo));
+    GL_CALL(glGenBuffers(1, &test_index_vbo));
+    GL_CALL(glBindBuffer(GL_ARRAY_BUFFER, test_geometry_vbo));
+    GL_CALL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, test_index_vbo));
 
     TexturedVertex vertices[] = {
         {{-0.5f, 0.5f, 0.0f}, {0.0f, 1.0f}, {0.0f, 0.0f, -1.0f}}, // top left
@@ -545,30 +625,24 @@ void Ichigo::Internal::init() {
     Ichigo::Internal::gl.glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), &vertices, GL_STATIC_DRAW);
     Ichigo::Internal::gl.glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(rectangle_indices), &rectangle_indices, GL_STATIC_DRAW);
 
-    auto skel = load_bau(Bana::temp_string("../assets/mococo.bau"), Internal::perm_allocator);
-    auto anim = load_bau_anim(Bana::temp_string("../assets/mococo.bau_anim"), Internal::perm_allocator);
+    auto skel = load_bau(Bana::temp_string("../assets/mococo_no_mmd_vertex_groups.bau"), Internal::perm_allocator);
+    auto anim = load_bau_anim(Bana::temp_string("../assets/mococo_no_mmd_vertex_groups.bau_anim"), Internal::perm_allocator);
     assert(skel.has_value);
     assert(anim.has_value);
-    mococo_skeleton = skel.value;
-    auto mococo_animation = anim.value;
+    mococo_skeleton = skel.value.bones;
+    mococo_animation = anim.value;
 
     ICHIGO_INFO("Loaded skeleton with %lld bones.", mococo_skeleton.size);
+    ICHIGO_INFO("Loaded skinning information for %lld vertices.", skel.value.skinning.size);
     ICHIGO_INFO("Loaded animation with %lld transforms.", mococo_animation.size);
-    // for (i32 i = 0; i < skeleton.size; ++i) {
-    //     ICHIGO_INFO("Bone: %.*s", PFBS(skeleton[i].name));
-    // }
 
-    Bana::FixedArray<Bana::Optional<mat4>> final_xforms = Bana::make_fixed_array<Bana::Optional<mat4>>(mococo_skeleton.size, Internal::perm_allocator);
-    final_xforms.size = mococo_skeleton.size;
-    std::memset(final_xforms.data, 0, final_xforms.size * sizeof(Bana::Optional<mat4>));
+    GL_CALL(glGenBuffers(1, &bone_info_ubo));
+    GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, bone_info_ubo));
+    GL_CALL(glBufferData(GL_UNIFORM_BUFFER, sizeof(mat4) * MAX_BONES_IN_SKELETON * 2, nullptr, GL_STATIC_DRAW));
+    GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 
-    for (i32 i = 0; i < mococo_skeleton.size; ++i) {
-        if (mococo_skeleton[i].parent_index == -1) {
-            final_xforms[i] = xform_to_mat4(mococo_animation[i]);
-        } else if (!final_xforms[i].has_value) {
-            final_xforms[i] = get_parent_xform(mococo_skeleton, mococo_animation, final_xforms, i) * xform_to_mat4(mococo_animation[i]);
-        }
-    }
+    final_xforms = Bana::make_fixed_array<Bana::Optional<mat4>>(mococo_skeleton.size, Internal::perm_allocator);
+    update_mococo_final_xforms();
 
     Ichigo::Internal::gl.glGenBuffers(1, (GLuint *) &mococo_skeleton_debug_vbos.geometry_vbo);
     Ichigo::Internal::gl.glGenBuffers(1, (GLuint *) &mococo_skeleton_debug_vbos.index_vbo);
@@ -643,10 +717,22 @@ void Ichigo::Internal::init() {
     MeshGroup mococo = mc.value;
     ICHIGO_INFO("Loaded mesh group: %.*s", PFBS(mococo.name));
 
+    // FIXME: Stupid...?
+    // Merge skinning information with .obj vertices.
+    auto skinned_vertices = Bana::make_fixed_array<SkinnedVertex>(skel.value.skinning.size, Ichigo::Internal::temp_allocator);
+    skinned_vertices.size = skel.value.skinning.size;
+
+    for (i32 i = 0; i < skinned_vertices.size; ++i) {
+        skinned_vertices[i].pos    = mococo.vtx[i].pos;
+        skinned_vertices[i].tex    = mococo.vtx[i].tex;
+        skinned_vertices[i].normal = mococo.vtx[i].normal;
+        std::memcpy(skinned_vertices[i].bones, skel.value.skinning[i].bones, sizeof(i32) * MAX_BONE_INFLUENCE);
+        std::memcpy(skinned_vertices[i].weights, skel.value.skinning[i].weights, sizeof(f32) * MAX_BONE_INFLUENCE);
+    }
+
     Ichigo::Internal::gl.glGenBuffers(1, &mococo_geometry_vbo);
     Ichigo::Internal::gl.glBindBuffer(GL_ARRAY_BUFFER, mococo_geometry_vbo);
-
-    Ichigo::Internal::gl.glBufferData(GL_ARRAY_BUFFER, mococo.vtx.size * sizeof(TexturedVertex), mococo.vtx.data, GL_STATIC_DRAW);
+    Ichigo::Internal::gl.glBufferData(GL_ARRAY_BUFFER, skinned_vertices.size * sizeof(SkinnedVertex), skinned_vertices.data, GL_STATIC_DRAW);
 
     mococo_index_vbos  = Bana::make_fixed_array<GLuint>(mococo.meshes.size);
     mococo_index_sizes = Bana::make_fixed_array<i32>(mococo.meshes.size);

@@ -193,6 +193,7 @@
 #define GL_UNSIGNED_BYTE                  0x1401
 #define GL_SHORT                          0x1402
 #define GL_UNSIGNED_SHORT                 0x1403
+#define GL_INT                            0x1404
 #define GL_FLOAT                          0x1406
 #define GL_FIXED                          0x140C
 #define GL_CLEAR                          0x1500
@@ -335,7 +336,7 @@
 #define GL_SRC2_ALPHA                     0x858A
 #define GL_DOT3_RGB                       0x86AE
 #define GL_DOT3_RGBA                      0x86AF
-
+#define GL_UNIFORM_BUFFER                 0x8A11
 #define GL_FRAGMENT_SHADER                0x8B30
 #define GL_VERTEX_SHADER                  0x8B31
 #define GL_COMPILE_STATUS                 0x8B81
@@ -418,8 +419,11 @@ using Type_glBlendFunci               = void (GLuint buf, GLenum sfactor, GLenum
 using Type_glBindVertexBuffer         = void (GLuint bindingindex, GLuint buffer, GLintptr offset, GLintptr stride);
 using Type_glVertexAttribBinding      = void (GLuint attribindex, GLuint bindingindex);
 using Type_glVertexAttribFormat       = void (GLuint attribindex, GLint size, GLenum type, GLboolean normalized, GLuint relativeoffset);
+using Type_glVertexAttribIFormat      = void (GLuint attribindex, GLint size, GLenum type, GLuint relativeoffset);
 using Type_glDepthRange               = void (GLdouble nearVal, GLdouble farVal);
 using Type_glDepthRangef              = void (GLfloat nearVal, GLfloat farVal);
+using Type_glBindBufferBase           = void (GLenum target, GLuint index, GLuint buffer);
+
 
 using Type_glUniform1f          = void (GLint location, GLfloat v0);
 using Type_glUniform2f          = void (GLint location, GLfloat v0, GLfloat v1);
@@ -542,7 +546,9 @@ struct OpenGL {
     OPENGL_FUNC_PTR(glBindVertexBuffer);
     OPENGL_FUNC_PTR(glVertexAttribBinding);
     OPENGL_FUNC_PTR(glVertexAttribFormat);
+    OPENGL_FUNC_PTR(glVertexAttribIFormat);
     OPENGL_FUNC_PTR(glDepthRange);
     OPENGL_FUNC_PTR(glDepthRangef);
+    OPENGL_FUNC_PTR(glBindBufferBase);
 };
 #undef OPENGL_FUNC_PTR
