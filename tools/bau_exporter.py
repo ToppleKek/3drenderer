@@ -20,6 +20,7 @@ from bpy_extras.io_utils import axis_conversion
 # bpy.ops.script.reload()  REMVOES OLD MENU ITEMS
 
 BAU_VERSION_NUMBER = 1
+BAU_ANIM_SAMPLE_RATE = 30
 
 def matrix_to_string(matrix):
     ret = ""
@@ -31,10 +32,10 @@ def matrix_to_string(matrix):
     return ret[:-1]
 
 def vec3_to_string(v):
-    return f"{v.x} {v.y} {v.z}"
+    return f"{v.x:.6f} {v.y:.6f} {v.z:.6f}"
 
 def quaternion_to_string(q):
-    return f"{q.w} {q.x} {q.y} {q.z}"
+    return f"{q.w:.6f} {q.x:.6f} {q.y:.6f} {q.z:.6f}"
 
 def do_export(context, filepath):
     with open(filepath, 'w', encoding='utf-8', newline='\n') as f:
@@ -46,10 +47,6 @@ def do_export(context, filepath):
         # Bone count (Bc).
         bone_count = len(arm.data.bones.keys())
         f.write(f"Bc {bone_count}\n")
-
-        # bone_map = {}
-        # for i, bone in enumerate(arm.data.bones):
-        #     bone_map[bone.name] = i
 
         axis_convert = axis_conversion(from_forward='-Y', from_up='Z', to_forward='Z', to_up='Y').to_4x4()
 
@@ -93,6 +90,7 @@ def do_export(context, filepath):
 def do_animation_export(context, filepath):
     with open(filepath, 'w', encoding='utf-8', newline='\n') as f:
         f.write(f"{BAU_VERSION_NUMBER} # BAU file version number.\n")
+        f.write(f"Sr {BAU_ANIM_SAMPLE_RATE}\n")
 
         obj = context.selected_objects[0]
         arm = obj.find_armature()
@@ -102,14 +100,18 @@ def do_animation_export(context, filepath):
 
         axis_convert = axis_conversion(from_forward='-Y', from_up='Z', to_forward='Z', to_up='Y').to_4x4()
 
-        for i, pose_bone in enumerate(arm.pose.bones):
-            matrix = axis_convert @ pose_bone.matrix
-            if pose_bone.parent:
-                parent = axis_convert @ pose_bone.parent.matrix
-                matrix = parent.inverted() @ matrix
+        f.write(f"Sc {context.scene.frame_end - context.scene.frame_start}\n")
+        for frame in range(context.scene.frame_start, context.scene.frame_end):
+            context.scene.frame_set(frame)
+            f.write(f"S {frame}\n")
+            for i, pose_bone in enumerate(arm.pose.bones):
+                matrix = axis_convert @ pose_bone.matrix
+                if pose_bone.parent:
+                    parent = axis_convert @ pose_bone.parent.matrix
+                    matrix = parent.inverted() @ matrix
 
-            loc, rot, scale = matrix.decompose()
-            f.write(f"Bx {i} {vec3_to_string(loc)} {quaternion_to_string(rot)} {vec3_to_string(scale)}\n")
+                loc, rot, scale = matrix.decompose()
+                f.write(f"Bx {i} {vec3_to_string(loc)} {quaternion_to_string(rot)} {vec3_to_string(scale)}\n")
 
     return {'FINISHED'}
 

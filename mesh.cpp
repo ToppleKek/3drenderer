@@ -152,7 +152,7 @@ Bana::Optional<BauArmature> load_bau(Bana::String filename, Bana::Allocator allo
     return ret;
 }
 
-Bana::Optional<Bana::FixedArray<Xform>> load_bau_anim(Bana::String filename, Bana::Allocator allocator) {
+Bana::Optional<BauAnimation> load_bau_anim(Bana::String filename, Bana::Allocator allocator) {
     auto d = Ichigo::Internal::platform_read_entire_file_sync(filename, Ichigo::Internal::temp_allocator);
     if (!d.has_value) return {};
     auto data = d.value;
@@ -163,36 +163,62 @@ Bana::Optional<Bana::FixedArray<Xform>> load_bau_anim(Bana::String filename, Ban
     assert(version_number == 1);
     br.skip_to_after('\n');
 
+    br.consume('S');
+    br.consume('r');
+    br.consume(' ');
+    i32 sample_rate = (i32) br.read_i64();
+    br.consume('\n');
+
     br.consume('B');
     br.consume('c');
     br.consume(' ');
     i32 bone_count = (i32) br.read_i64();
     br.consume('\n');
 
-    auto ret = Bana::make_fixed_array<Xform>(bone_count, allocator);
+    br.consume('S');
+    br.consume('c');
+    br.consume(' ');
+    i32 sample_count = (i32) br.read_i64();
+    br.consume('\n');
 
-    for (i32 i = 0; i < bone_count; ++i) {
-        assert(br.has_more_data());
-        Bana::String line      = br.view_next_line_with_newline();
-        // FIXME: MAJOR GARBAGE ALARM!!!
-        line[line.length - 1]  = 0;
-        Bana::BufferReader lbr = {line.data, line.length, 0};
-        Xform xform            = {};
+    BauAnimation animation = {};
+    animation.sample_rate = sample_rate;
 
-        lbr.consume('B');
-        lbr.consume('x');
+    auto samples = Bana::make_fixed_array<Bana::FixedArray<Xform>>(sample_count, allocator);
+    for (i32 sample = 0; sample < sample_count; ++sample) {
+        auto this_sample_xforms = Bana::make_fixed_array<Xform>(bone_count, allocator);
 
-        i32 bone_idx = (i32) lbr.read_i64();
-        // TODO: Not sure if we really even need the bone index in the file format.
-        assert(bone_idx == i);
-        xform.translation = read_vec3(&lbr);
-        xform.rotation    = read_quaternion(&lbr);
-        xform.scale       = read_vec3(&lbr);
+        // TODO: We don't really need the sample number. Who cares? Remove it from the format perhaps?
+        br.consume('S');
+        br.consume(' ');
+        br.skip_to_after('\n');
 
-        ret.append(xform);
+        for (i32 i = 0; i < bone_count; ++i) {
+            assert(br.has_more_data());
+            Bana::String line      = br.view_next_line_with_newline();
+            // FIXME: MAJOR GARBAGE ALARM!!!
+            line[line.length - 1]  = 0;
+            Bana::BufferReader lbr = {line.data, line.length, 0};
+            Xform xform            = {};
+
+            lbr.consume('B');
+            lbr.consume('x');
+
+            i32 bone_idx = (i32) lbr.read_i64();
+            // TODO: Not sure if we really even need the bone index in the file format.
+            assert(bone_idx == i);
+            xform.translation = read_vec3(&lbr);
+            xform.rotation    = read_quaternion(&lbr);
+            xform.scale       = read_vec3(&lbr);
+
+            this_sample_xforms.append(xform);
+        }
+
+        samples.append(this_sample_xforms);
     }
 
-    return ret;
+    animation.samples = samples;
+    return animation;
 }
 
 Bana::Optional<Bana::Array<Material>> load_mtl(Bana::String filename, Bana::Allocator allocator) {

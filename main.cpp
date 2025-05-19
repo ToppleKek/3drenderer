@@ -58,7 +58,6 @@ static GLuint basic_pos_col_vao = 0;
 static GLuint skinned_mesh_vao  = 0;
 static GLuint test_geometry_vbo = 0;
 static GLuint test_index_vbo    = 0;
-static GLuint skinning_information_ubo = 0;
 
 static GLuint bone_info_ubo = 0;
 static GLuint mococo_geometry_vbo = 0;
@@ -67,7 +66,7 @@ static usize skeleton_index_size = 0;
 static Bana::FixedArray<i32> mococo_index_sizes = {};
 static Bana::FixedArray<Material> mococo_materials = {};
 static Bana::FixedArray<Bone> mococo_skeleton = {};
-static Bana::FixedArray<Xform> mococo_animation = {};
+static BauAnimation mococo_animation = {};
 // Global state that is visible in ichigo.hpp
 Ichigo::GameState Ichigo::game_state        = {};
 f32 Ichigo::Internal::target_frame_time     = 0.016f;
@@ -114,6 +113,7 @@ static vec3 camera_pos   = {0.0f, 0.0f, -3.0f};
 static vec3 camera_up    = {0.0f, 1.0f, 0.0f};
 static f32 camera_yaw = 45.0f;
 static f32 camera_pitch = 10.0f;
+static f32 anim_t = 0.0f;
 
 static vec3 light_pos            = {1.0f, 1.0f, 1.0f};
 static vec3 light_colour         = {1.0f, 1.0f, 1.0f};
@@ -135,16 +135,39 @@ static mat4 get_parent_xform(Bana::FixedArray<Bone> &skeleton, Bana::FixedArray<
     return final_xforms[parent_index].value;
 }
 
-static void update_mococo_final_xforms() {
+static void update_mococo_final_xforms(f32 t) {
     final_xforms.size = mococo_skeleton.size;
     std::memset(final_xforms.data, 0, final_xforms.size * sizeof(Bana::Optional<mat4>));
     auto ubo_data = Bana::make_fixed_array<mat4>(MAX_BONES_IN_SKELETON * 2, Ichigo::Internal::temp_allocator);
 
+    i32 frame_a = (i32) (t * mococo_animation.sample_rate);
+    i32 frame_b = frame_a + 1;
+
+    auto interpolated_samples = Bana::make_fixed_array<Xform>(mococo_animation.samples[0].size, Ichigo::Internal::temp_allocator);
+
+    // Just use the last frame if for some reason we are running off the end.
+    if (frame_a >= mococo_animation.samples.size || frame_b >= mococo_animation.samples.size) {
+        Bana::fixed_array_copy(interpolated_samples, mococo_animation.samples[mococo_animation.samples.size - 1]);
+    } else {
+        for (i32 i = 0; i < mococo_animation.samples[frame_a].size; ++i) {
+            Xform a      = mococo_animation.samples[frame_a][i];
+            Xform b      = mococo_animation.samples[frame_b][i];
+            Xform result = {};
+            f32 dt       = (t * mococo_animation.sample_rate) - frame_a;
+
+            result.translation = ichigo_lerp(a.translation, dt, b.translation);
+            result.rotation    = nlerp(a.rotation, dt, b.rotation);
+            result.scale       = ichigo_lerp(a.scale, dt, b.scale);
+
+            interpolated_samples.append(result);
+        }
+    }
+
     for (i32 i = 0; i < mococo_skeleton.size; ++i) {
         if (mococo_skeleton[i].parent_index == -1) {
-            final_xforms[i] = xform_to_mat4(mococo_animation[i]);
+            final_xforms[i] = xform_to_mat4(interpolated_samples[i]);
         } else if (!final_xforms[i].has_value) {
-            final_xforms[i] = get_parent_xform(mococo_skeleton, mococo_animation, final_xforms, i) * xform_to_mat4(mococo_animation[i]);
+            final_xforms[i] = get_parent_xform(mococo_skeleton, interpolated_samples, final_xforms, i) * xform_to_mat4(interpolated_samples[i]);
         }
 
         ubo_data.append(final_xforms[i].value);
@@ -259,7 +282,10 @@ static void frame_render() {
     // GLint final_xforms_loc          = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "final_xforms");
     // GLint inverse_bind_matrices_loc = Ichigo::Internal::gl.glGetUniformLocation(skinned_mesh_program, "inverse_bind_matrices");
 
-    update_mococo_final_xforms();
+    anim_t += Ichigo::Internal::dt;
+    if (anim_t >= (f32) mococo_animation.samples.size / (f32) mococo_animation.sample_rate) anim_t = 0.0f;
+
+    update_mococo_final_xforms(anim_t);
 
     GL_CALL(glUniform1i(tex_loc, 0));
     GL_CALL(glUniformMatrix4fv(model_loc, 1, GL_TRUE, (GLfloat *) &model1));
@@ -434,6 +460,7 @@ void Ichigo::Internal::do_frame() {
         }
 
         if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Text("anim_t: %f length: %f", anim_t, (f32) mococo_animation.samples.size / (f32) mococo_animation.sample_rate);
             ImGui::DragFloat3("Light pos", (f32 *) &light_pos, 0.1f);
             ImGui::ColorPicker3("Light colour", (f32 *) &light_colour);
             ImGui::ColorPicker3("Ambient colour", (f32 *) &ambient_light_colour);
@@ -634,7 +661,7 @@ void Ichigo::Internal::init() {
 
     ICHIGO_INFO("Loaded skeleton with %lld bones.", mococo_skeleton.size);
     ICHIGO_INFO("Loaded skinning information for %lld vertices.", skel.value.skinning.size);
-    ICHIGO_INFO("Loaded animation with %lld transforms.", mococo_animation.size);
+    ICHIGO_INFO("Loaded animation with %lld samples.", mococo_animation.samples.size);
 
     GL_CALL(glGenBuffers(1, &bone_info_ubo));
     GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, bone_info_ubo));
@@ -642,7 +669,7 @@ void Ichigo::Internal::init() {
     GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, 0));
 
     final_xforms = Bana::make_fixed_array<Bana::Optional<mat4>>(mococo_skeleton.size, Internal::perm_allocator);
-    update_mococo_final_xforms();
+    update_mococo_final_xforms(0.0f);
 
     Ichigo::Internal::gl.glGenBuffers(1, (GLuint *) &mococo_skeleton_debug_vbos.geometry_vbo);
     Ichigo::Internal::gl.glGenBuffers(1, (GLuint *) &mococo_skeleton_debug_vbos.index_vbo);

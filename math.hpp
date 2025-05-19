@@ -288,6 +288,14 @@ struct Quaternion {
             {0.0f,          0.0f,          0.0f,                  1.0f},
         };
     }
+
+    f32 length() {
+        return sqrt(w * w + x * x + y * y + z * z);
+    }
+
+    Quaternion operator/(f32 rhs) {
+        return {w / rhs, x / rhs, y / rhs, z / rhs};
+    }
 };
 
 inline Quaternion qrot(f32 theta, vec3 axis) {
@@ -470,6 +478,10 @@ inline T dot(Vec4<T> lhs, Vec4<T> rhs) {
     return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z + lhs.w * rhs.w;
 }
 
+inline f32 dot(Quaternion lhs, Quaternion rhs) {
+    return lhs.w * rhs.w + lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
+}
+
 template<typename T>
 inline Vec3<T> cross(Vec3<T> lhs, Vec3<T> rhs) {
     return Vec3<T>{lhs.y * rhs.z - rhs.y * lhs.z, lhs.z * rhs.x - rhs.z * lhs.x, lhs.x * rhs.y - rhs.x * lhs.y};
@@ -478,6 +490,10 @@ inline Vec3<T> cross(Vec3<T> lhs, Vec3<T> rhs) {
 template<typename T>
 inline Vec3<T> normalize(Vec3<T> v) {
     return v / v.length();
+}
+
+inline Quaternion normalize(Quaternion q) {
+    return q / q.length();
 }
 
 inline mat4 perspective(f32 fov, f32 aspect, f32 zn, f32 zf) {
@@ -544,6 +560,21 @@ inline T clamp(T value, T min, T max) {
 
 inline f32 ichigo_lerp(f32 a, f32 t, f32 b) {
     return a + t * (b - a);
+}
+
+inline vec3 ichigo_lerp(vec3 a, f32 t, vec3 b) {
+    return {ichigo_lerp(a.x, t, b.x), ichigo_lerp(a.y, t, b.y), ichigo_lerp(a.z, t, b.z)};
+}
+
+inline Quaternion nlerp(Quaternion a, f32 t, Quaternion b) {
+    Quaternion q;
+    if (dot(a, b) < 0.0f) {
+        q = {ichigo_lerp(a.w, t, -b.w), ichigo_lerp(a.x, t, -b.x), ichigo_lerp(a.y, t, -b.y), ichigo_lerp(a.z, t, -b.z)};
+    } else {
+        q = {ichigo_lerp(a.w, t, b.w), ichigo_lerp(a.x, t, b.x), ichigo_lerp(a.y, t, b.y), ichigo_lerp(a.z, t, b.z)};
+    }
+
+    return normalize(q);
 }
 
 inline f32 bezier(f32 p0, f32 p1, f32 t, f32 p2, f32 p3) {

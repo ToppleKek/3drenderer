@@ -51,9 +51,14 @@ struct BauArmature {
     Bana::FixedArray<SkinningInformation> skinning;
 };
 
+struct BauAnimation {
+    i32 sample_rate;
+    Bana::FixedArray<Bana::FixedArray<Xform>> samples;
+};
+
 Bana::Optional<BauArmature> load_bau(Bana::String filename, Bana::Allocator allocator = Bana::heap_allocator);
 // TODO: TEMPORARY!!! We will need a fixed array of keyframes instead or something like that. For now this just loads a single pose.
-Bana::Optional<Bana::FixedArray<Xform>> load_bau_anim(Bana::String filename, Bana::Allocator allocator = Bana::heap_allocator);
+Bana::Optional<BauAnimation> load_bau_anim(Bana::String filename, Bana::Allocator allocator = Bana::heap_allocator);
 Bana::Optional<Bana::Array<Material>> load_mtl(Bana::String filename, Bana::Allocator allocator = Bana::heap_allocator);
 Bana::Optional<MeshGroup> load_wavefront(Bana::String filename, Bana::Allocator allocator = Bana::heap_allocator);
 

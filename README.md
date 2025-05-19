@@ -8,10 +8,10 @@ Implemented:
 - - Blender export plugin for this format.
 - Model skinning.
 - Posable mesh.
-
-Todo:
 - Finish .bau_anim format for animations.
 - Skeletal animation.
+
+Todo:
 - More lighting work (point lights, light maps, shadow maps).
 - Collision detection.
 - Rewrite the whole thing.
